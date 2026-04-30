@@ -27,6 +27,7 @@ import {
   softDeleteArrowEdge,
 } from './yjs/operations'
 import { isTextNode } from './yjs/schema'
+import { undoMyLastCommittedStep } from './yjs/undoHistory'
 import {
   elementsToReactFlow,
   mergeTextNodeCommits,
@@ -85,8 +86,31 @@ export function Board(props: { roomId: string }) {
   const [board, setBoard] = useState<YBoard | null>(null)
   const [nodes, setNodes] = useState<Node<TextNodeData>[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
-  const [syncStatus, setSyncStatus] = useState<'connecting' | 'connected' | 'disconnected' | string>('disconnected')
+  /** y-websocket 链路状态（connecting | connected | disconnected） */
+  const [linkStatus, setLinkStatus] = useState<string>('connecting')
+  /** 是否与服务器完成 Yjs 首轮同步（断线后为 false） */
+  const [docSynced, setDocSynced] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
+
+  const syncBadgeText =
+    linkStatus === 'connected'
+      ? docSynced
+        ? '已连接 · 已同步'
+        : '已连接 · 同步文档…'
+      : linkStatus === 'connecting'
+        ? '连接中…'
+        : linkStatus === 'disconnected'
+          ? '已断开 · 自动重连中'
+          : linkStatus
+
+  const syncBadgeTone =
+    linkStatus === 'disconnected'
+      ? 'disconnected'
+      : linkStatus === 'connected' && !docSynced
+        ? 'syncing-doc'
+        : linkStatus === 'connected'
+          ? 'connected'
+          : 'connecting'
 
   const selectedCount = useBoardSelectionStore((s) => s.selectedNodeIds.length)
   const selectedNodeIds = useBoardSelectionStore((s) => s.selectedNodeIds)
@@ -171,22 +195,39 @@ export function Board(props: { roomId: string }) {
 
     const b = createYBoard(roomId)
     setBoard(b)
-    setSyncStatus('connecting')
-
-    const onStatus = (ev: { status: string }) => setSyncStatus(ev.status)
-    b.provider.on('status', onStatus)
+    setLinkStatus('connecting')
+    setDocSynced(false)
 
     const flush = () => flushFromY(b)
-    /** 整块文档更新都会触发（含远程同步）；observeDeep 对 Map 中非嵌套 YType 不可靠 */
+
+    const onStatus = (ev: unknown) => {
+      const pack = Array.isArray(ev) && ev.length ? (ev as unknown[])[0] : ev
+      if (pack && typeof pack === 'object' && 'status' in pack) {
+        const s = String((pack as { status: string }).status)
+        setLinkStatus(s)
+        if (s !== 'connected') setDocSynced(false)
+      }
+    }
+
+    const onWsSync = (...args: unknown[]) => {
+      const first = args[0]
+      const state = Array.isArray(first) ? first[0] : first
+      setDocSynced(Boolean(state))
+      flush()
+    }
+
+    b.provider.on('status', onStatus as never)
+    b.provider.on('sync', onWsSync as never)
+
+    /** 整块文档更新都会触发（含远程同步） */
     const onDocUpdate = () => flush()
     b.ydoc.on('update', onDocUpdate)
-    b.provider.on('sync', flush)
     flush()
 
     return () => {
-      b.provider.off('status', onStatus)
+      b.provider.off('status', onStatus as never)
+      b.provider.off('sync', onWsSync as never)
       b.ydoc.off('update', onDocUpdate)
-      b.provider.off('sync', flush)
       destroyYBoard(b)
       clearSelectionUi()
       flowInstRef.current = null
@@ -195,6 +236,19 @@ export function Board(props: { roomId: string }) {
       setEdges([])
     }
   }, [roomId, flushFromY, clearSelectionUi])
+
+  /** 阶段⑤：Ctrl/Cmd+Z 仅撤销本人在 history 中的一步（光标在正文/输入框时不抢撤销） */
+  useEffect(() => {
+    if (!board) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== 'z' || e.shiftKey) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest('textarea, input, [contenteditable="true"]')) return
+      if (undoMyLastCommittedStep(board)) e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [board])
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -296,8 +350,8 @@ export function Board(props: { roomId: string }) {
           <span className="toolbar-label">房间</span>
           <code className="toolbar-room mono">{roomId}</code>
           <span className="toolbar-hint">
-            连线：右侧 → 左侧 · 空白拖选 · <kbd>Space</kbd> 平移 · AI 先框选 · 双击文本块四周留白/边线区域选中（不切进正文编辑，有高亮类似连线）→{' '}
-            <kbd>Backspace</kbd> / <kbd>Delete</kbd> 移除 · <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+双击可多选并入
+            连线：右侧 → 左侧 · 空白拖选 · <kbd>Space</kbd> 平移 · AI 先框选 · 双击留白选中 → <kbd>Backspace</kbd> / <kbd>Delete</kbd> 移除 ·{' '}
+            <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Z</kbd> 撤销本人上一步 · 双击边线可多选并入
           </span>
         </div>
         <div className="board-toolbar-actions">
@@ -331,7 +385,9 @@ export function Board(props: { roomId: string }) {
           <button className="btn-primary" disabled={!board} type="button" onClick={handleAddNode}>
             ＋ 文本块
           </button>
-          <span className={`board-sync-badge board-sync-${syncStatus}`}>{syncStatus}</span>
+          <span className={`board-sync-badge board-sync-${syncBadgeTone}`} title={syncBadgeText}>
+            {syncBadgeText}
+          </span>
         </div>
       </header>
       <ReactFlow

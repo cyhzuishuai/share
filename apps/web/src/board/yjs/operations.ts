@@ -18,7 +18,9 @@ export function snapshotElements(yElements: Y.Map<unknown>): Map<string, unknown
 }
 
 export function pushHistory(board: YBoard, item: HistoryItem): void {
-  board.yHistory.push([item])
+  /** Y.Array.push 的参数必须是「一组要插入的元素」，单层 [row]；row 本身是扁平 HistoryItem（与 markHistoryUndone 的 insert(i,[row]) 一致） */
+  const row = JSON.parse(JSON.stringify(item)) as HistoryItem
+  board.yHistory.push([row] as never)
 }
 
 export function createArrowEdge(

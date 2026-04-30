@@ -5,17 +5,16 @@
 - 架构：**[`docs/01-architecture.md`](docs/01-architecture.md)**  
 - 能力与手测：**[`docs/02-core-goals.md`](docs/02-core-goals.md)**  
 - 实现顺序：**[`docs/03-implementation-steps.md`](docs/03-implementation-steps.md)**  
+- **作业四项交付摘要（同步 / 数据结构 / AI 流式 / 测试）：[`docs/04-technical-delivery.md`](docs/04-technical-delivery.md)**  
 - Cursor 协作入口：**[`.cursor/README.md`](.cursor/README.md)**
 
 ## 当前仓库状态
 
-已从 **阶段①（脚手架）** 与 **阶段②中的协作服务端雏形**落地：
+- **`apps/web`**：React Flow + Yjs，`WebsocketProvider` 直连 **`ws://localhost:1234`**；`/api` 由 Vite 代理到后端。  
+- **`apps/server`**：Express + 同端口 **y-websocket**（`setupWSConnection`）；**`POST /api/ai/stream`** 服务端代理 MiniMax 流式。  
+- **根目录**：**`npm run dev`** 并行启动 web + server。  
 
-- **`apps/web`**：Vite + React TS，`reactflow`、`yjs@13`、`y-websocket@3`、`zustand`；`vite.config.ts` 已配置 `/api` → `localhost:1234`。
-- **`apps/server`**：`Express` + 与 HTTP 同端口 **Yjs WebSocket**（`y-websocket@1.5.4` + `setupWSConnection`），`POST /api/ai/stream` 占位 501；**`apps/server/.env.example`**。
-- **根目录**：`npm run dev`（`concurrently` 同时起 server + web）。
-
-接下来按 **`.cursor/step.md`** 勾选：React Flow 画布、Y.Doc 持久结构、AI 真流式、撤销栈、离线 UI。
+开发与交付勾选见：**[`.cursor/step.md`](.cursor/step.md)**。
 
 ## 环境与密钥
 

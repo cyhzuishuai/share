@@ -143,6 +143,10 @@
   color: #eecf8f;
 }
 
+.board-sync-syncing-doc {
+  color: #d4b87a;
+}
+
 .board-flow {
   flex: 1 1 auto;
   min-height: 0;
